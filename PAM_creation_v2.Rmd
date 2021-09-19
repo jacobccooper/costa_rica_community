@@ -2,8 +2,7 @@
 title: Creating Presence Absence Matrices for Costa Rican Birds
 author: "Motmots Lab Group"
 date: "18 September 2021"
-output: github_document: 
-    toc: true
+output: github_document
 ---
 
 # 1 Overview
