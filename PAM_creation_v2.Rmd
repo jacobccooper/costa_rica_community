@@ -282,7 +282,7 @@ plot(sf.hex,add=T)
 
 Now we have a hex grid created. Our goals are to create 1) a biogeographic SDM and 2) a hex grid representation of that SDM for the creation of our PAM.
 
-```{r,echo=F}
+```{r,echo=F,eval=F}
 y=readOGR("~/Dropbox/motmots/SDMs/hex_mesh_slopes.gpkg")
 y
 

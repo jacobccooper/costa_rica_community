@@ -347,26 +347,6 @@ Now we have a hex grid created. Our goals are to create 1) a
 biogeographic SDM and 2) a hex grid representation of that SDM for the
 creation of our PAM.
 
-    ## OGR data source with driver: GPKG 
-    ## Source: "/home/kupeornis/Dropbox/motmots/SDMs/hex_mesh_slopes.gpkg", layer: "hex_mesh_slopes"
-    ## with 372 features
-    ## It has 0 fields
-
-    ## class       : SpatialPointsDataFrame 
-    ## features    : 372 
-    ## extent      : -85.9219, -82.5469, 8.046986, 11.18633  (xmin, xmax, ymin, ymax)
-    ## crs         : +proj=longlat +datum=WGS84 +no_defs 
-    ## variables   : 1
-    ## names       : FID 
-    ## min values  :   1 
-    ## max values  : 372
-
-![](PAM_creation_v2_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->
-
-    ## [1] 13.65229
-
-    ## [1] 645.6569
-
 ``` r
 PAM=NULL
 
