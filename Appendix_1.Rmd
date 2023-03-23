@@ -1,0 +1,1831 @@
+---
+title: 'Appendix 1: What constitutes a community?'
+author: Mélusine F. Velde, Jacob C. Cooper, et al.
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: md_document
+toc: true
+---
+
+\newpage
+
+# 1 Overview
+
+Velde and Cooper are listed as co-first authors and are thus denoted as the main authors for this document. Due to space requirements, the full authorlist has been moved to here. Current (primary) affiliations shown as of March 2023; see publication for more information.
+
+1. Mélusine F. Velde
+  Negaunee Integrative Research Center, Division of Birds
+  Field Museum
+  1400 S du Sable Lake Shore Drive
+  Chicago, IL 60605
+  United States
+  
+2. Elizabeth M. Besozzi
+  Department of Biology
+  University of Oklahoma
+  660 Parrington Oval
+  Norman, OK 73019
+  United States
+  
+3. Billi A. Krochuk
+  Biodiversity Research Centre and Dept. of Zoology
+  University of British Columbia
+  2212 Main Mall
+  Vancouver, BC V6T 1Z4
+  Canada
+  
+4. Kate M. Henderson
+  College of Environmental Science and Forestry
+  State University of New York
+  1 Forestry Drive
+  Syracuse, NY 13210
+  United States
+  
+5. Brian R. Tsuru
+  School of Environment and Natural Resources
+  Ohio State University
+  2021 Coffey Road
+  Columbus, OH 43210
+  United States
+  
+6. Sara Velásquez Restrepo
+  Universidad EAFIT
+  Carrera 49 #7 sur 50
+  Medellín
+  Colombia
+  
+7. Holly M. Garrod
+  BirdsCaribbean
+  841 Worchester Street
+  Natick, MA 01760
+  United States
+  
+8. Jacob C. Cooper
+  Biodiversity Institute & Natural History Museum
+  University of Kansas
+  1345 Jayhawk Boulevard
+  Lawrence, KS 66045
+  United States
+
+\newpage
+## 1.1 Background
+
+This document is a concatenation of codes used to create "What constitutes a community? A co-occurrence exploration of the Costa Rican avifauna". The code was formatted by Jacob C. Cooper and is presented *as is* and will require manipulation by users for use on their own machines. This manuscript relies heavily on data from M. F. Velde's undergraduate thesis at the University of Chicago: "Testing the accuracy of species distribution models based on community science data". These models were created using minimum volume ellipsoids (MVEs) and will be made available in a future publication.
+
+**Please note** that many of these analyses utilize algorithms that change with each iteration; thus, results presented herein may not match exactly with those in the manuscript.
+
+## 1.2 Required packages
+
+**Please note** that due to constant updates, these may not be the exact version numbers used in the manuscript.
+
+```{r}
+library(ape)
+library(data.table)
+library(dismo)
+library(ecostructure)
+library(factoextra)
+library(ggplot2)
+library(gridExtra)
+library(raster)
+library(rgdal)
+library(rgeos)
+library(rnaturalearth)
+library(sf)
+library(tidyverse)
+library(vegan)
+
+# not available for updated R
+# used in this analysis
+# library(velox)
+
+library(viridis)
+```
+
+# 2 Ecological Niche Modeling
+
+This study utilizes ecological niche models (ENMs) created by MF Velde for her undergraduate thesis project at the University of Chicago (Velde 2021). These models use minimum volume ellipsoids (MVEs) to create suitability outputs and apply varying thresholds to the data. These data were created using two different datasets, that had two 10 km radius artificial absences in each to test their effectiveness at modeling species distributions (Velde 2021).
+
+# 3 Presence-absence matrices
+
+The following is an overview of the pipeline used to create the presence absence matrix derived from MFV's data.
+
+## 3.1 Winter Models
+
+The MVE models were created, trained, and projected to the entirety of Costa Rica and Panama. For this study, we are explicitly looking at Costa Rica, given the density of data and how well known the bird communities are in the country. Additionally, the MVE models were projected out without regard to biogeographic barriers. Here, we are correcting for these changes and ensuring that all species are restricted to their appropriate biogeographic zones to create more accurate species distribution models from which other metrics can be calculated.
+
+In this particular study, we used only two biogeographic regions - Pacific Slope and Caribbean Slope - as our preliminary explorations demonstrated that further subdivisions biased *ecostructure* outputs.
+
+```{r,echo=F}
+sdm.filepath=paste0("~/Dropbox/motmots/SDMs/MadreSelva_december/")
+shp.filepath=paste0("~/Dropbox/motmots/shapefiles/")
+```
+```{r}
+# get list of files with points
+
+gpkgs=list.files(shp.filepath,pattern=".gpkg")
+
+y=readOGR(paste0(shp.filepath,gpkgs[2]))
+
+crs.x=crs(y)
+
+plot(y)
+```
+
+```{r}
+# We create training areas based on winter data for most
+# winter is the time of dispersal and vagrancy for many taxa
+# summer species not dealt with here are dealt with later.
+
+species=list.files(paste0(sdm.filepath,
+                          "all.species"),
+                   pattern="*.csv")
+```
+```{r,eval=F}
+# preload shapefiles since we have only four
+
+y1=readOGR(paste0(shp.filepath,gpkgs[1]))
+y2=readOGR(paste0(shp.filepath,gpkgs[2]))
+#y3=readOGR(paste0(shp.filepath,gpkgs[3]))
+#y4=readOGR(paste0(shp.filepath,gpkgs[4]))
+
+for(i in 1:length(species)){
+  x=read.csv(paste0(sdm.filepath,"all.species/",species[i]))
+  x2=x%>%dplyr::select(LONGITUDE,LATITUDE)
+  x.data2=SpatialPoints(x2,proj4string = crs.x)
+  
+  shp.list=NULL
+  
+  # for variable number of gpkgs files
+  
+  #for(k in 1:length(gpkgs)){
+  #  y=readOGR(paste0(shp.filepath,gpkgs[k]))
+  #  inside.m=sum(!is.na(over(x.data2,as(y,"SpatialPolygons"))))
+  #  if(inside.m>0){shp.list[k]=1}else{shp.list[k]=0}
+  #}
+  
+  # for this instance, since there are only five
+  
+  shp.list[1]=sum(!is.na(over(x.data2,as(y1,"SpatialPolygons"))))
+  shp.list[2]=sum(!is.na(over(x.data2,as(y2,"SpatialPolygons"))))
+  #shp.list[3]=sum(!is.na(over(x.data2,as(y3,"SpatialPolygons"))))
+  #shp.list[4]=sum(!is.na(over(x.data2,as(y4,"SpatialPolygons"))))
+  
+  shps=which(shp.list>0)
+  
+  if(length(shps)==0){next}
+  
+  if(length(shps)==1){
+    # x.u.1=readOGR(paste0(shp.filepath,gpkgs[shps]))
+    if(shps==1){assign('x.u.1',y1)}
+    if(shps==2){assign('x.u.1',y2)}
+    #if(shps==3){assign('x.u.1',y3)}
+    #if(shps==4){assign('x.u.1',y4)}
+  }else{
+    # merge shapefiles
+    #x.u.1=readOGR(paste0(shp.filepath,gpkgs[shps[1]]))
+    #for(k in 2:length(shps)){
+    #  x.u.2=readOGR(paste0(shp.filepath,gpkgs[shps[k]]))
+    #  x.u.1=gUnion(x.u.1,x.u.2)
+    #}
+    
+    # memory saver below
+    for(k in 1:length(shps)){
+      if(k==1){
+        if(shps[k]==1){assign('x.u.1',y1)}
+        if(shps[k]==2){assign('x.u.1',y2)}
+        #if(shps[k]==3){assign('x.u.1',y3)}
+        #if(shps[k]==4){assign('x.u.1',y4)}
+        #if(shps[k]==5){assign('x.u.1',y5)}
+      }else{
+        if(shps[k]==1){assign('x.u.2',y1)}
+        if(shps[k]==2){assign('x.u.2',y2)}
+        #if(shps[k]==3){assign('x.u.2',y3)}
+        #if(shps[k]==4){assign('x.u.2',y4)}
+        #if(shps[k]==5){assign('x.u.2',y5)}
+        
+        x.u.1=gUnion(x.u.1,x.u.2)
+      }
+    }
+  }
+  
+  split.name=strsplit(species[i],"[.]")[[1]][1]
+  
+  x.union=st_as_sf(x.u.1)
+  
+  st_write(x.union,
+           paste0(shp.filepath,"training_areas/",split.name,".gpkg"),
+           split.name)
+}
+
+print('done')
+```
+
+### Clipping Rasters
+
+Next, we need to clip all rasters to the aforementioned training areas and ensure that we have the proper biogeographic envelopes applied for each species.
+
+```{r,echo=F}
+shp.path="~/Dropbox/motmots/shapefiles/training_areas/"
+sdm.path="~/Dropbox/motmots/SDMs/MadreSelva_december/"
+```
+
+Note the SDM subdirectories are `output_all/75` for the whole files thresholded with 75% confidence and `clipped_SDM` for the clipped rasters.
+
+```{r}
+sdm.list=list.files(paste0(sdm.path,"output_all/75"),pattern="*.tif")
+shp.list=list.files(paste0(shp.path),pattern="*.gpkg")
+```
+
+We will not be clipping training areas for each species to correct for species richness patterns etc.
+
+```{r,echo=F}
+i=1
+
+name=strsplit(sdm.list[i],"_")[[1]][1]
+x=raster(paste0(sdm.path,"output_all/75/",sdm.list[i]))
+y=readOGR(paste0(shp.path,shp.list[which(shp.list%like%name)]))
+
+plot(x)
+plot(y,add=T)
+```
+
+Above is an illustration of `r print(name)`, where the areas where points have been recorded are highlighted in black, and areas outside of the Costa Rica training area or where the species truly does not occur are outside of this biogeographic envelope.
+
+In order to ensure everything is cropped correctly, we will use a 'reference raster' from a widespread species.
+
+```{r,echo=F}
+i=which(sdm.list%like%"Amazilia-tzacatl")
+
+name=strsplit(sdm.list[i],"_")[[1]][1]
+x=raster(paste0(sdm.path,"output_all/75/",sdm.list[i]))
+y=readOGR(paste0(shp.path,shp.list[which(shp.list%like%name)]))
+
+plot(x)
+plot(y,add=T)
+```
+
+Above is *Amazilia tzacatl*, a widespread Neotropical hummingbird, as predicted by the ecological niche models.Since it occurs in every part of Costa Rica, we can use it to create a default projection raster.
+
+```{r,echo=F}
+# scratch space
+
+ex.y=extent(y)
+crs(x)=crs(y)
+rx=projectExtent(y,crs=crs(x))
+
+x.temp=raster(ext=extent(rx),crs=crs(x),res=res(x))
+
+nu.x=projectRaster(from=x,to=x.temp,method='ngb',
+                   res=(res(x)),crs=crs(x))
+```
+
+```{r}
+# creating template from Amazilia
+
+cr1=crop(x,y)
+cr2=raster::mask(cr1,y)
+crs(cr2)=crs(x.temp)
+cr3=projectRaster(cr2,x.temp,method='ngb',
+                  res=(res(x)),crs=crs(x))
+
+cr3[cr3>0]=0
+
+x.temp=cr3
+
+plot(cr3)
+```
+
+We can see here that the template extent works. No we can start clipping everything. The template extent importantly has zero values for the entire land, so stacking and summing will create maps that cover the entire country.
+
+Furthermore, we want to create hexbins of everything so we can perform ecostructure analyses.
+
+**Important note**: due to issues with the hex polygons and classes I did all of this in memory at the same time.
+
+```{r,eval=F}
+# create hexbin over Zonotrichia training
+y2=as(y,"Spatial")
+CR.buff=gBuffer(y,width=0.05)
+CR.hex=spsample(CR.buff,type='hexagonal',cellsize=0.125)
+hex=HexPoints2SpatialPolygons(CR.hex)
+
+Pam.coords=as.data.frame(CR.hex@coords)
+Locality=paste0("ID",1:nrow(Pam.coords))
+
+locality_metadata=cbind(Locality,Pam.coords)
+colnames(locality_metadata)=c('Locality','Longitude','Latitude')
+write.csv(locality_metadata,paste0(sdm.path,"locality_metadata.csv"),
+          quote=F,row.names = F)
+
+sf.hex=st_as_sf(CR.hex)
+```
+```{r,echo=F,eval=F}
+write_sf(sf.hex,"~/Dropbox/motmots/SDMs/hex_mesh_slopes.gpkg")
+```
+
+```{r,echo=F}
+sf.hex=read_sf("~/Dropbox/motmots/SDMs/hex_mesh_slopes.gpkg")
+```
+```{r,eval=F}
+plot(y)
+plot(hex,add=T)
+```
+```{r,echo=F}
+plot(y)
+plot(sf.hex,add=T)
+```
+
+Now we have a hex grid created. Our goals are to create 1) a biogeographic SDM and 2) a hex grid representation of that SDM for the creation of our PAM.
+
+```{r,echo=F}
+y=readOGR("~/Dropbox/motmots/SDMs/hex_mesh_slopes.gpkg")
+y
+
+ycoord=y@coords
+
+disty=99999999999
+
+for(i in 1:(nrow(ycoord)-1)){
+  c1=ycoord[i,]
+  for(j in (i+1):nrow(ycoord)){
+    disty=c(disty,pointDistance(c1,ycoord[j,],lonlat = T))
+  }
+}
+
+# convert meters to km for closest distance
+disty=disty/1000
+disty=disty[-1]
+hist(disty)
+min(disty)
+
+# calculate area of hexagon
+# Area = 1/2 x perimeter x apothem
+apothem=min(disty)
+
+# calculate length of 1/12 perimeter from apothem
+# since it is 30-60-90, apothem = x*sqrt(3)
+halfside=apothem/sqrt(3)
+fullside=halfside*2
+perim=fullside*6
+
+0.5*perim*apothem
+```
+
+```{r,eval=F}
+PAM=NULL
+
+errors="Errors"
+
+for(i in 412:length(sdm.list)){
+  name=strsplit(sdm.list[i],"_")[[1]][1]
+
+  if(length(which(shp.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  if(length(which(sdm.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  
+  x=raster(paste0(sdm.path,"output_all/75/",sdm.list[i]))
+  y=readOGR(paste0(shp.path,shp.list[which(shp.list%like%name)]))
+  
+  cr1=crop(x,y)
+  cr2=raster::mask(cr1,y)
+  crs(cr2)=crs(x.temp)
+  cr3=projectRaster(cr2,x.temp,method='ngb',
+                    res=(res(x)),crs=crs(x))
+  
+  # make everything zero so land cells become 0 when stacked
+  cr3[is.na(cr3)]=0
+  
+  x.stack=stack(cr3,x.temp)
+  cr4=calc(x.stack,fun=sum)
+  
+  # performed in previous iteration
+  if(file.exists(paste0(sdm.path,'clipped_SDM/',
+                              name,"_cropped.tif"))==F){
+    writeRaster(cr4,
+              filename=paste0(sdm.path,'clipped_SDM/',
+                              name,"_cropped.tif"))
+  }
+                              
+  
+  # project to hex
+  rm(x)
+  rm(y)
+  rm(cr1)
+  rm(cr2)
+  rm(cr3)
+  rm(cr4)
+  
+  v.cr=velox(paste0(sdm.path,'clipped_SDM/',
+                              name,"_cropped.tif"))
+  
+  hex.ext=v.cr$extract(hex)
+  
+  #hex.ext=raster::extract(cr4,hex)
+  
+  hex.vals=NULL
+  
+  for(k in 1:length(hex.ext)){
+    n=length(na.omit(hex.ext[[k]]))
+    j=sum(na.omit(hex.ext[[k]]))
+    if(j==0){
+      hex.vals[k]=0
+      next
+    }
+    if(n<11){
+      if(j>0.7){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n<41){
+      if(j>0.5){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n>40){
+      if(j>0.3){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+  }
+  
+  hex.data=as.data.frame(hex.vals)
+  row.names(hex.data)=paste0("ID",1:length(hex))
+  
+  hex.data=SpatialPolygonsDataFrame(hex,hex.data)
+  
+  hex.write=st_as_sf(hex.data)
+  
+  st_write(hex.write,
+           paste0(sdm.filepath,"hex/",name,".gpkg"))
+  
+  if(i==1){
+    PAM=as.data.frame(hex.vals)
+    colnames(PAM)[i]=name
+  }else{
+    PAM=cbind(PAM,hex.vals)
+    index=which(colnames(PAM)=="hex.vals")
+    colnames(PAM)[index]=name
+  }
+}
+
+print('done')
+```
+```{r,eval=F}
+print(errors)
+
+row.names(PAM)=paste0('ID',1:nrow(PAM))
+PAM2=t(PAM)
+
+write.csv(PAM,paste0(sdm.path,"eco_PAM.csv"),row.names = T,quote=F)
+
+print("done")
+```
+```
+ [1] "Errors"                     "Amazona-ochrocephala"      
+ [3] "Anthracothorax-nigricollis" "Ardea-cocoi"               
+ [5] "Atalotriccus-pilaris"       "Cacicus-cela"              
+ [7] "Campephilus-melanoleucos"   "Cantorchilus-leucotis"     
+ [9] "Cercomacra-nigricans"       "Chaetura-brachyura"        
+[11] "Chaetura-spinicaudus"       "Chalybura-buffonii"        
+[13] "Cotinga-nattererii"         "Crotophaga-major"          
+[15] "Dendroplex-picus"           "Euphonia-fulvicrissa"      
+[17] "Glaucis-hirsutus"           "Icterus-chrysater"         
+[19] "Juliamyia-julie"            "Lophornis-delattrei"       
+[21] "Manacus-vitellinus"         "Momotus-subrufescens"      
+[23] "Myiopagis-gaimardii"        "Myrmeciza-longipes"        
+[25] "Notharchus-pectoralis"      "Oncostoma-olivaceum"       
+[27] "Pachysylvia-aurantiifrons"  "Pitangus-lictor"           
+[29] "Ramphocelus-dimidiatus"     "Rhynchocyclus-olivaceus"   
+[31] "Sicalis-flaveola"           "Trogon-chionurus"          
+[33] "Trogon-melanurus"          
+[1] "done"
+```
+
+## 3.3 Summer models
+
+```{r,echo=F}
+sdm.filepath=paste0("~/Dropbox/motmots/SDMs/SanJose_june/")
+shp.filepath=paste0("~/Dropbox/motmots/shapefiles/")
+```
+```{r,eval=F}
+# get list of files with points
+
+gpkgs=list.files(shp.filepath,pattern=".gpkg")
+
+y=readOGR(paste0(shp.filepath,gpkgs[2]))
+
+crs.x=crs(y)
+```
+
+```{r,eval=F}
+species=list.files(paste0(sdm.filepath,
+                          "all.species"),
+                   pattern="*.csv")
+```
+```{r,eval=F}
+# preload shapefiles since we have only five
+
+y1=readOGR(paste0(shp.filepath,gpkgs[1]))
+y2=readOGR(paste0(shp.filepath,gpkgs[2]))
+#y3=readOGR(paste0(shp.filepath,gpkgs[3]))
+#y4=readOGR(paste0(shp.filepath,gpkgs[4]))
+#y5=readOGR(paste0(shp.filepath,gpkgs[5]))
+
+new.files="new.files"
+
+for(i in 1:length(species)){
+  x=read.csv(paste0(sdm.filepath,"all.species/",species[i]))
+  
+  split.name=strsplit(species[i],"[.]")[[1]][1]
+  
+  if(file.exists(paste0(shp.filepath,
+                   "training_areas/",split.name,".gpkg"))==T){
+      next
+    }else{
+      new.files=c(new.files,split.name)
+    }
+  
+  x2=x%>%dplyr::select(LONGITUDE,LATITUDE)
+  x.data2=SpatialPoints(x2,proj4string = crs.x)
+  
+  shp.list=NULL
+  
+  # for variable number of gpkgs files
+  
+  #for(k in 1:length(gpkgs)){
+  #  y=readOGR(paste0(shp.filepath,gpkgs[k]))
+  #  inside.m=sum(!is.na(over(x.data2,as(y,"SpatialPolygons"))))
+  #  if(inside.m>0){shp.list[k]=1}else{shp.list[k]=0}
+  #}
+  
+  # for this instance, since there are only five
+  
+  shp.list[1]=sum(!is.na(over(x.data2,as(y1,"SpatialPolygons"))))
+  shp.list[2]=sum(!is.na(over(x.data2,as(y2,"SpatialPolygons"))))
+  #shp.list[3]=sum(!is.na(over(x.data2,as(y3,"SpatialPolygons"))))
+  #shp.list[4]=sum(!is.na(over(x.data2,as(y4,"SpatialPolygons"))))
+  #shp.list[5]=sum(!is.na(over(x.data2,as(y5,"SpatialPolygons"))))
+  
+  shps=which(shp.list>0)
+  
+  if(length(shps)==0){next}
+  
+  if(length(shps)==1){
+    # x.u.1=readOGR(paste0(shp.filepath,gpkgs[shps]))
+    if(shps==1){assign('x.u.1',y1)}
+    if(shps==2){assign('x.u.1',y2)}
+    #if(shps==3){assign('x.u.1',y3)}
+    #if(shps==4){assign('x.u.1',y4)}
+    #if(shps==5){assign('x.u.1',y5)}
+  }else{
+    # merge shapefiles
+    #x.u.1=readOGR(paste0(shp.filepath,gpkgs[shps[1]]))
+    #for(k in 2:length(shps)){
+    #  x.u.2=readOGR(paste0(shp.filepath,gpkgs[shps[k]]))
+    #  x.u.1=gUnion(x.u.1,x.u.2)
+    #}
+    
+    # memory saver below
+    for(k in 1:length(shps)){
+      if(k==1){
+        if(shps[k]==1){assign('x.u.1',y1)}
+        if(shps[k]==2){assign('x.u.1',y2)}
+        #if(shps[k]==3){assign('x.u.1',y3)}
+        #if(shps[k]==4){assign('x.u.1',y4)}
+        #if(shps[k]==5){assign('x.u.1',y5)}
+      }else{
+        if(shps[k]==1){assign('x.u.2',y1)}
+        if(shps[k]==2){assign('x.u.2',y2)}
+        #if(shps[k]==3){assign('x.u.2',y3)}
+        #if(shps[k]==4){assign('x.u.2',y4)}
+        #if(shps[k]==5){assign('x.u.2',y5)}
+        
+        x.u.1=gUnion(x.u.1,x.u.2)
+      }
+    }
+  }
+  
+  x.union=st_as_sf(x.u.1)
+  
+  st_write(x.union,
+           paste0(shp.filepath,"training_areas/",split.name,".gpkg"),
+           split.name)
+}
+
+print(new.files)
+```
+```
+  [1] "new.files"                    "Amazona-ochrocephala"        
+  [3] "Androdon-aequatorialis"       "Anthracothorax-nigricollis"  
+  [5] "Anthus-lutescens"             "Aphanotriccus-audax"         
+  [7] "Ara-chloropterus"             "Ara-severus"                 
+  [9] "Ardea-cocoi"                  "Ardenna-grisea"              
+ [11] "Arremon-atricapillus"         "Atalotriccus-pilaris"        
+ [13] "Atlapetes-luteoviridis"       "Atticora-tibialis"           
+ [15] "Basileuterus-ignotus"         "Brachygalba-salmoni"         
+ [17] "Cacicus-cela"                 "Calidris-fuscicollis"        
+ [19] "Campephilus-haematogaster"    "Campephilus-melanoleucos"    
+ [21] "Campylorhynchus-albobrunneus" "Campylorhynchus-griseus"     
+ [23] "Cantorchilus-leucopogon"      "Cantorchilus-leucotis"       
+ [25] "Capito-maculicoronatus"       "Carpodectes-hopkei"          
+ [27] "Caryothraustes-canadensis"    "Ceratopipra-erythrocephala"  
+ [29] "Cercomacra-nigricans"         "Chaetura-brachyura"          
+ [31] "Chaetura-spinicaudus"         "Chalybura-buffonii"          
+ [33] "Chlorospingus-flavigularis"   "Chlorospingus-inornatus"     
+ [35] "Chlorospingus-tacarcunae"     "Chlorothraupis-olivacea"     
+ [37] "Chrysomus-icterocephalus"     "Circus-buffoni"              
+ [39] "Cnipodectes-subbrunneus"      "Coccycua-minuta"             
+ [41] "Colaptes-punctigula"          "Conirostrum-leucogenys"      
+ [43] "Cotinga-nattererii"           "Cranioleuca-dissita"         
+ [45] "Crotophaga-major"             "Cryptoleucopteryx-plumbea"   
+ [47] "Cryptopipo-holochlora"        "Cyanerpes-caeruleus"         
+ [49] "Dacnis-viguieri"              "Dendroplex-picus"            
+ [51] "Donacobius-atricapilla"       "Euphonia-fulvicrissa"        
+ [53] "Euphonia-xanthogaster"        "Fluvicola-pica"              
+ [55] "Forpus-conspicillatus"        "Glaucis-hirsutus"            
+ [57] "Goethalsia-bella"             "Goldmania-violiceps"         
+ [59] "Gygis-alba"                   "Haplophaedia-aureliae"       
+ [61] "Harpia-harpyja"               "Hemithraupis-flavicollis"    
+ [63] "Herpsilochmus-rufimarginatus" "Heterospingus-xanthopygius"  
+ [65] "Icterus-auricapillus"         "Icterus-chrysater"           
+ [67] "Jacamerops-aureus"            "Juliamyia-julie"             
+ [69] "Larosterna-inca"              "Larus-californicus"          
+ [71] "Larus-delawarensis"           "Larus-dominicanus"           
+ [73] "Larus-fuscus"                 "Leucophaeus-modestus"        
+ [75] "Lophornis-delattrei"          "Machetornis-rixosa"          
+ [77] "Manacus-vitellinus"           "Margarornis-bellulus"        
+ [79] "Momotus-subrufescens"         "Morphnus-guianensis"         
+ [81] "Myadestes-coloratus"          "Myiodynastes-chrysocephalus" 
+ [83] "Myiopagis-caniceps"           "Myiopagis-gaimardii"         
+ [85] "Myrmeciza-longipes"           "Myrmornis-torquata"          
+ [87] "Myrmotherula-ignota"          "Myrmotherula-pacifica"       
+ [89] "Nonnula-frontalis"            "Notharchus-pectoralis"       
+ [91] "Nystalus-radiatus"            "Oncostoma-olivaceum"         
+ [93] "Pachyramphus-homochrous"      "Pachyramphus-rufus"          
+ [95] "Pachysylvia-aurantiifrons"    "Patagioenas-leucocephala"    
+ [97] "Patagioenas-plumbea"          "Pelecanus-erythrorhynchos"   
+ [99] "Phaethornis-anthophilus"      "Phaetusa-simplex"            
+[101] "Philydor-fuscipenne"          "Phyllomyias-griseiceps"      
+[103] "Phylloscartes-flavovirens"    "Piculus-callopterus"         
+[105] "Piculus-chrysochloros"        "Pilherodius-pileatus"        
+[107] "Pitangus-lictor"              "Poecilostreptus-palmeri"     
+[109] "Polioptila-schistaceigula"    "Progne-elegans"              
+[111] "Psarocolius-guatimozinus"     "Pseudobulweria-rostrata"     
+[113] "Pyrrhura-picta"               "Quiscalus-lugubris"          
+[115] "Ramphocelus-dimidiatus"       "Rhynchocyclus-olivaceus"     
+[117] "Sapayoa-aenigma"              "Schiffornis-stenorhyncha"    
+[119] "Selasphorus-ardens"           "Sicalis-flaveola"            
+[121] "Sicalis-luteola"              "Sirystes-albogriseus"        
+[123] "Sula-granti"                  "Tangara-fucosa"              
+[125] "Tersina-viridis"              "Thamnophilus-nigriceps"      
+[127] "Tolmomyias-flaviventris"      "Touit-dilectissimus"         
+[129] "Trogon-chionurus"             "Trogon-melanurus"            
+[131] "Vireolanius-eximius"          "Xenerpestes-minlosi"         
+[133] "Zentrygon-goldmani"  
+```
+
+Some of the above are also just species that occur in Panama that are not in Costa Rica; therefore, not fully accurate.
+
+### Clipping Rasters
+
+Next, we need to clip all rasters to the aforementioned training areas and ensure that we have the proper biogeographic envelopes applied for each species.
+
+```{r,echo=F}
+shp.path="~/Dropbox/motmots/shapefiles/training_areas/"
+sdm.path="~/Dropbox/motmots/SDMs/SanJose_june/"
+```
+
+Note the SDM subdirectories are `output_all/75` for the whole files thresholded with 75% confidence and `clipped_SDM` for the clipped rasters.
+
+```{r,eval=F}
+sdm.list=list.files(paste0(sdm.path,"output/75"),pattern="*.tif")
+shp.list=list.files(paste0(shp.path),pattern="*.gpkg")
+```
+
+We will not be clipping training areas for each species to correct for species richness patterns etc.
+
+```{r,eval=F}
+PAM=NULL
+
+errors="Errors"
+
+for(i in 1:length(sdm.list)){
+  name=strsplit(sdm.list[i],"_")[[1]][1]
+
+  if(length(which(shp.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  if(length(which(sdm.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  
+  x=raster(paste0(sdm.path,"output/75/",sdm.list[i]))
+  y=readOGR(paste0(shp.path,shp.list[which(shp.list%like%name)]))
+  
+  cr1=crop(x,y)
+  cr2=raster::mask(cr1,y)
+  crs(cr2)=crs(x.temp)
+  cr3=projectRaster(cr2,x.temp,method='ngb',
+                    res=(res(x)),crs=crs(x))
+  
+  # make everything zero so land cells become 0 when stacked
+  cr3[is.na(cr3)]=0
+  
+  x.stack=stack(cr3,x.temp)
+  cr4=calc(x.stack,fun=sum)
+  
+  # performed in previous iteration
+  if(file.exists(paste0(sdm.path,'clipped_SDM/',
+                              name,"_cropped.tif"))==F){
+    writeRaster(cr4,
+              filename=paste0(sdm.path,'clipped_SDM/',
+                              name,"_cropped.tif"))
+  }
+  
+  # project to hex
+  # project to hex
+  rm(x)
+  rm(y)
+  rm(cr1)
+  rm(cr2)
+  rm(cr3)
+  rm(cr4)
+  
+  v.cr=velox(paste0(sdm.path,'clipped_SDM/',
+                              name,"_cropped.tif"))
+  
+  hex.ext=v.cr$extract(hex)
+  
+  #hex.ext=raster::extract(cr4,hex)
+  
+  hex.vals=NULL
+  
+  for(k in 1:length(hex.ext)){
+    n=length(na.omit(hex.ext[[k]]))
+    j=sum(na.omit(hex.ext[[k]]))
+    if(j==0){
+      hex.vals[k]=0
+      next
+    }
+    if(n<11){
+      if(j>0.7){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n<41){
+      if(j>0.5){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n>40){
+      if(j>0.3){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+  }
+  
+  hex.data=as.data.frame(hex.vals)
+  row.names(hex.data)=paste0("ID",1:length(hex))
+  
+  hex.data=SpatialPolygonsDataFrame(hex,hex.data)
+  
+  hex.write=st_as_sf(hex.data)
+  
+  st_write(hex.write,
+           paste0(sdm.filepath,"hex/",name,".gpkg"))
+  
+  #st_write(hex.data,
+  #         paste0(shp.filepath,"training_areas/",split.name,".gpkg"),
+  #         split.name)
+  #writeOGR(hex.data,
+  #         dsn=paste0(sdm.path,"hex/",name,"_hex-grid.gpkg"),
+  #         layer=name,
+  #         driver="SQLite")
+  
+  if(i==1){
+    PAM=as.data.frame(hex.vals)
+    colnames(PAM)[i]=name
+  }else{
+    PAM=cbind(PAM,hex.vals)
+    index=which(colnames(PAM)=="hex.vals")
+    colnames(PAM)[index]=name
+  }
+}
+
+print("Done.")
+```
+```{r,eval=F}
+print(errors)
+
+row.names(PAM)=paste0('ID',1:nrow(PAM))
+PAM2=t(PAM)
+
+write.csv(PAM,paste0(sdm.path,"eco_PAM.csv"),row.names = T,quote=F)
+```
+
+```
+ [1] "Errors"                    "Amazona-ochrocephala"     
+ [3] "Atalotriccus-pilaris"      "Cacicus-cela"             
+ [5] "Campephilus-melanoleucos"  "Cantorchilus-leucotis"    
+ [7] "Chaetura-brachyura"        "Chaetura-spinicaudus"     
+ [9] "Chalybura-buffonii"        "Crotophaga-major"         
+[11] "Dendroplex-picus"          "Euphonia-fulvicrissa"     
+[13] "Glaucis-hirsutus"          "Icterus-chrysater"        
+[15] "Juliamyia-julie"           "Manacus-vitellinus"       
+[17] "Momotus-subrufescens"      "Myiopagis-gaimardii"      
+[19] "Myrmeciza-longipes"        "Notharchus-pectoralis"    
+[21] "Oncostoma-olivaceum"       "Pachysylvia-aurantiifrons"
+[23] "Pitangus-lictor"           "Ramphocelus-dimidiatus"   
+[25] "Sicalis-flaveola"          "Trogon-chionurus"         
+[27] "Trogon-melanurus"
+```
+
+## 3.3 Full unclipped summer models
+
+```{r,eval=F}
+sdm.path="~/Dropbox/motmots/SDMs/SanJose_june/"
+
+sdm.list=list.files(paste0(sdm.path,"output/75"),pattern="*.tif")
+```
+
+
+```{r,eval=F}
+PAM=NULL
+
+errors="Errors"
+
+for(i in 1:length(sdm.list)){
+  name=strsplit(sdm.list[i],"_")[[1]][1]
+
+  if(length(which(shp.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  if(length(which(sdm.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  
+  #x=raster(paste0(sdm.path,"output_all/75/",sdm.list[i]))
+  #y=readOGR(paste0(shp.path,shp.list[which(shp.list%like%name)]))
+  
+  #cr1=crop(x,y)
+  #cr2=raster::mask(cr1,y)
+  #crs(cr2)=crs(x.temp)
+  #cr3=projectRaster(cr2,x.temp,method='ngb',
+  #                  res=(res(x)),crs=crs(x))
+  
+  # make everything zero so land cells become 0 when stacked
+  #cr3[is.na(cr3)]=0
+  
+  #x.stack=stack(cr3,x.temp)
+  #cr4=calc(x.stack,fun=sum)
+  
+  #writeRaster(cr4,
+  #            filename=paste0(sdm.path,'clipped_SDM/',
+  #                            name,"_cropped.tif"))
+  
+  # project to hex
+  # project to hex
+  #rm(x)
+  #rm(y)
+  #rm(cr1)
+  #rm(cr2)
+  #rm(cr3)
+  #rm(cr4)
+  
+  v.cr=velox(paste0(sdm.path,'output/75/',
+                              sdm.list[i]))
+  
+  hex.ext=v.cr$extract(hex)
+  
+  #hex.ext=raster::extract(cr4,hex)
+  
+  hex.vals=NULL
+  
+  for(k in 1:length(hex.ext)){
+    n=length(na.omit(hex.ext[[k]]))
+    j=sum(na.omit(hex.ext[[k]]))
+    if(j==0){
+      hex.vals[k]=0
+      next
+    }
+    if(n<11){
+      if(j>0.7){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n<41){
+      if(j>0.5){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n>40){
+      if(j>0.3){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+  }
+  
+  hex.data=as.data.frame(hex.vals)
+  row.names(hex.data)=paste0("ID",1:length(hex))
+  
+  hex.data=SpatialPolygonsDataFrame(hex,hex.data)
+  
+  #hex.write=st_as_sf(hex.data)
+  
+  st_write(hex.write,
+           paste0(sdm.filepath,"noclip/",name,".gpkg"))
+  
+  #st_write(hex.data,
+  #         paste0(shp.filepath,"training_areas/",split.name,".gpkg"),
+  #         split.name)
+  #writeOGR(hex.data,
+  #         dsn=paste0(sdm.path,"hex/",name,"_hex-grid.gpkg"),
+  #         layer=name,
+  #         driver="SQLite")
+  
+  if(i==1){
+    PAM=as.data.frame(hex.vals)
+    colnames(PAM)[i]=name
+  }else{
+    PAM=cbind(PAM,hex.vals)
+    index=which(colnames(PAM)=="hex.vals")
+    colnames(PAM)[index]=name
+  }
+}
+
+print("Done")
+```
+```{r,eval=F}
+print(errors)
+
+row.names(PAM)=paste0('ID',1:nrow(PAM))
+PAM2=t(PAM)
+
+write.csv(PAM,paste0(sdm.path,"eco_null_PAM.csv"),row.names = T,quote=F)
+```
+```
+ [1] "Errors"                    "Amazona-ochrocephala"     
+ [3] "Atalotriccus-pilaris"      "Cacicus-cela"             
+ [5] "Campephilus-melanoleucos"  "Cantorchilus-leucotis"    
+ [7] "Chaetura-brachyura"        "Chaetura-spinicaudus"     
+ [9] "Chalybura-buffonii"        "Crotophaga-major"         
+[11] "Dendroplex-picus"          "Euphonia-fulvicrissa"     
+[13] "Glaucis-hirsutus"          "Icterus-chrysater"        
+[15] "Juliamyia-julie"           "Manacus-vitellinus"       
+[17] "Momotus-subrufescens"      "Myiopagis-gaimardii"      
+[19] "Myrmeciza-longipes"        "Notharchus-pectoralis"    
+[21] "Oncostoma-olivaceum"       "Pachysylvia-aurantiifrons"
+[23] "Pitangus-lictor"           "Ramphocelus-dimidiatus"   
+[25] "Sicalis-flaveola"          "Trogon-chionurus"         
+[27] "Trogon-melanurus"  
+```
+
+## 3.4 Full unclipped winter models
+
+```{r,eval=F}
+sdm.path="~/Dropbox/motmots/SDMs/MadreSelva_december/"
+
+sdm.list=list.files(paste0(sdm.path,"output_all/75"),pattern="*.tif")
+```
+
+
+```{r,eval=F}
+PAM=NULL
+
+errors="Errors"
+
+for(i in 411:length(sdm.list)){
+  name=strsplit(sdm.list[i],"_")[[1]][1]
+
+  if(length(which(shp.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  if(length(which(sdm.list%flike%name))<1){
+    errors=c(errors,name)
+    next
+  }
+  
+  #x=raster(paste0(sdm.path,"output_all/75/",sdm.list[i]))
+  #y=readOGR(paste0(shp.path,shp.list[which(shp.list%like%name)]))
+  
+  #cr1=crop(x,y)
+  #cr2=raster::mask(cr1,y)
+  #crs(cr2)=crs(x.temp)
+  #cr3=projectRaster(cr2,x.temp,method='ngb',
+  #                  res=(res(x)),crs=crs(x))
+  
+  # make everything zero so land cells become 0 when stacked
+  #cr3[is.na(cr3)]=0
+  
+  #x.stack=stack(cr3,x.temp)
+  #cr4=calc(x.stack,fun=sum)
+  
+  #writeRaster(cr4,
+  #            filename=paste0(sdm.path,'clipped_SDM/',
+  #                            name,"_cropped.tif"))
+  
+  # project to hex
+  # project to hex
+  #rm(x)
+  #rm(y)
+  #rm(cr1)
+  #rm(cr2)
+  #rm(cr3)
+  #rm(cr4)
+  
+  v.cr=velox(paste0(sdm.path,'output_all/75/',
+                              sdm.list[i]))
+  
+  hex.ext=v.cr$extract(hex)
+  
+  #hex.ext=raster::extract(cr4,hex)
+  
+  hex.vals=NULL
+  
+  for(k in 1:length(hex.ext)){
+    n=length(na.omit(hex.ext[[k]]))
+    j=sum(na.omit(hex.ext[[k]]))
+    if(j==0){
+      hex.vals[k]=0
+      next
+    }
+    if(n<11){
+      if(j>0.7){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n<41){
+      if(j>0.5){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+    if(n>40){
+      if(j>0.3){hex.vals[k]=1}else{hex.vals[k]=0}
+      next
+    }
+  }
+  
+  hex.data=as.data.frame(hex.vals)
+  row.names(hex.data)=paste0("ID",1:length(hex))
+  
+  hex.data=SpatialPolygonsDataFrame(hex,hex.data)
+  
+  hex.write=st_as_sf(hex.data)
+  
+  st_write(hex.write,
+           paste0(sdm.path,"noclip/",name,".gpkg"))
+  
+  #st_write(hex.data,
+  #         paste0(shp.filepath,"training_areas/",split.name,".gpkg"),
+  #         split.name)
+  #writeOGR(hex.data,
+  #         dsn=paste0(sdm.path,"hex/",name,"_hex-grid.gpkg"),
+  #         layer=name,
+  #         driver="SQLite")
+  
+  if(i==1){
+    PAM=as.data.frame(hex.vals)
+    colnames(PAM)[i]=name
+  }else{
+    PAM=cbind(PAM,hex.vals)
+    index=which(colnames(PAM)=="hex.vals")
+    colnames(PAM)[index]=name
+  }
+}
+
+print("Done")
+```
+```{r,eval=F}
+print(errors)
+
+row.names(PAM)=paste0('ID',1:nrow(PAM))
+PAM2=t(PAM)
+
+write.csv(PAM,paste0(sdm.path,"eco_null_PAM.csv"),row.names = T,quote=F)
+```
+
+```
+ [1] "Errors"                     "Amazona-ochrocephala"      
+ [3] "Anthracothorax-nigricollis" "Ardea-cocoi"               
+ [5] "Atalotriccus-pilaris"       "Cacicus-cela"              
+ [7] "Campephilus-melanoleucos"   "Cantorchilus-leucotis"     
+ [9] "Cercomacra-nigricans"       "Chaetura-brachyura"        
+[11] "Chaetura-spinicaudus"       "Chalybura-buffonii"        
+[13] "Cotinga-nattererii"         "Crotophaga-major"          
+[15] "Dendroplex-picus"           "Euphonia-fulvicrissa"      
+[17] "Glaucis-hirsutus"           "Icterus-chrysater"         
+[19] "Juliamyia-julie"            "Lophornis-delattrei"       
+[21] "Manacus-vitellinus"         "Momotus-subrufescens"      
+[23] "Myiopagis-gaimardii"        "Myrmeciza-longipes"        
+[25] "Notharchus-pectoralis"      "Oncostoma-olivaceum"       
+[27] "Pachysylvia-aurantiifrons"  "Pitangus-lictor"           
+[29] "Ramphocelus-dimidiatus"     "Rhynchocyclus-olivaceus"   
+[31] "Sicalis-flaveola"           "Trogon-chionurus"          
+[33] "Trogon-melanurus"
+```
+
+# 4 *Ecostructure* analyses: all species
+
+This section will create *ecostructure* community analyses for models trained to biogegraphic areas and for those based on models created irrespective of biogeography (i.e., neutral).
+
+Prepare the custom loop function for analyses:
+
+```{r,eval=F}
+ecomapper=function(x,k,tol=NULL,n=NULL){
+  if(is.null(tol)==T){tol=0.1}
+  if(is.null(n)==T){n=10}
+  
+  fit=ecos_fit(x,K=k,tol=tol,num_trials=n)
+  
+  ord.x=1:nrow(fit$omega)
+  
+  palette.x=c('#a6cee3','#1f78b4',
+              '#b2df8a','#33a02c',
+              '#fb9a99','#e5e5e5',
+              '#e31a1c','#fdbf6f',
+              '#ff7f00','#cab2d6',
+              '#6a3d9a','#ffff99',
+              '#b15928','#000000')
+  
+  # too many points for blocks
+  #
+  
+  order_metadata = ord.x,
+  
+  features=CountClust::ExtractTopFeatures(fit$theta,
+                                          top_features = 5,
+                                          method="poisson",
+                                          options="max")
+  
+  t(apply(features$indices,c(1,2),
+          function(x){return(rownames(fit$theta)[x])}))
+  
+  # the following step isn't working here
+  # out=ecos_nullmodel(x,K=k,null.model = "richness",
+  #                      iter_randomized = n,option="BF")
+  
+  if(is.na(coords.x)==F){
+    #ymin=min(coords.x$Latitude)+0.5
+    #ymax=max(coords.x$Latitude)+0.5
+    #xmin=min(coords.x$Longitude)+0.5
+    #xmax=max(coords.x$Longitude)+0.5
+    ecos_plot_pie(omega=fit$omega,
+                  lat_lim=c(-8,12),
+                  long_lim=c(-86,-82),
+                  coords=coords.x,
+                  path=paste0(sdm.path, #operates within chunks
+                              "costa_rica",
+                              "-",k,
+                              '-geostructure_plot.png'),
+                  color = palette.x,
+                  radius=0.05,
+                  bgmap_path = map.path) # map path previously defined
+    }
+}
+```
+
+Get metadata.
+
+```{r,eval=F}
+meta.x=read_csv(paste0(sdm.path,"locality_metadata.csv"))
+```
+
+```{r,eval=F}
+coords.x=meta.x%>%
+  dplyr::select(Longitude,Latitude)%>%
+  as.data.frame()
+
+row.names(coords.x)=meta.x$Locality
+```
+
+## 4.1 Example run of models
+
+This example is based on a winter PAM.
+
+```{r,eval=F}
+winter.pam=as.data.frame(read_csv(paste0(sdm.path,"eco_PAM.csv")))
+```
+
+```{r,eval=FALSE}
+colnames(winter.pam)[1]="Locality"
+
+winter.pam[is.na(winter.pam)]=0
+
+row.names(winter.pam)=winter.pam$Locality
+winter.pam=winter.pam%>%
+  dplyr::select(-Locality)
+```
+
+### Example usage for one level of K
+
+```{r,eval=F}
+ecomapper(x=winter.pam,k=2)
+```
+
+# 5 Creating clusters
+
+The goal of this pipeline is to group species together based on their geographic similarity. Species overlap to varying degrees, allowing us to cluster species together based on their distributional similarities. We will subsequently be abe to look at the distributions of these clusters and the species that comprise them. Niche models are derived from Velde 20201, clustering code from Cooper 2021.
+
+**Note** that this is an example of the code used; not all output is shown here.
+
+## 5.1 Example usage of cluster pipeline
+
+```{r,echo=F}
+filepath="~/Dropbox/motmots/"
+setwd(filepath)
+```
+
+### December PAM
+
+```{r}
+x=as.data.frame(read_csv(paste0(filepath,"SDMs/MadreSelva_december/eco_PAM.csv")))
+
+subset=read_csv(paste0(filepath,"ecostructure/studytaxa_migrants.csv"))
+subset=subset%>%filter(Exclude=="Include")%>%
+  select(-FAMILY,-Exclude)
+
+subnames=gsub(" ","-",subset$SCINAME)
+
+pam.names=colnames(x)
+
+winter.x=x[,which(pam.names%in%subnames)]
+
+rm(x)
+rm(subset)
+```
+
+```{r}
+summary(winter.x[,1:5])
+```
+
+```{r}
+winter.x[is.na(winter.x)]=0
+richness=rowSums(winter.x)
+
+hist(richness/ncol(winter.x))
+```
+
+```{r}
+colnames(winter.x[,1:9])
+```
+
+```{r}
+x2=winter.x
+```
+
+### Clustering Code
+
+Now, to create a code that will process and cluster these data.
+
+```{r}
+x=as.data.frame(read_csv(paste0(filepath,"SDMs/MadreSelva_december/eco_PAM.csv")))
+
+subset=read_csv(paste0(filepath,"ecostructure/studytaxa.csv"))
+
+subset=subset%>%filter(Exclude=="Include")%>%
+  select(-FAMILY,-Exclude)
+subnames=gsub(" ","-",subset$SCINAME)
+pam.names=colnames(x)
+winter.x=x[,which(pam.names%in%subnames)]
+rm(x)
+rm(subset)
+
+winter.x[is.na(winter.x)]=0
+richness=rowSums(winter.x)
+
+x2=winter.x
+```
+
+```{r}
+xdata=x2
+
+ncluster=11
+
+# writepath=paste0(filepath,"SDMs/MadreSelva_december/")
+
+level="M"
+
+# removed ncluster variable
+# now determines best group number
+
+clustertaxa=function(ncluster,xdata,writepath,level){
+  
+  if(exists('ncluster')==F){ncluster=5}
+  
+  x3=xdata# %>%
+    #select(-`X1`)
+  
+  xnames=colnames(x3)
+  
+  #x4=x3[,-c(1:5)]
+  
+  #col.x=colnames(x3)
+  x4=as.data.frame(unclass(t(x3)))
+  
+  #colnames(x4)=xnames
+  
+  #for(i in 1:ncol(x4)){
+  #  x4[,i]=as.numeric(as.character(x4[,i]))
+  #}
+  
+  name.vector=unique(xnames)
+  
+  #colnames(x4)=name.vector
+  
+  wss=(nrow(x4)-1)*sum(apply(x4,2,var))
+  for(v in 2:40){
+    wss[v]=sum(kmeans(x4,centers=v)$withinss)
+  }
+  
+  #plot(1:40,wss,type="b",xlab="Number of Clusters",
+  #   ylab="Within groups sum of squares")
+  
+  set.seed(123)
+  
+  print(fviz_nbclust(x4,kmeans,nstart=2,method="gap_stat",
+               nboot=100,k.max=30)+
+    labs(subtitle = "Gap Statistic"))
+  
+  # ncluster.det=which(wss==min(wss))
+  
+  # defined from above plot
+  
+  clust.x=hclust(dist(x4),method="average")
+  plot(clust.x)
+  rect.hclust(clust.x,k=ncluster)
+  
+  set.seed(20)
+  
+  x.tree=as.phylo(clust.x)
+  
+  write.tree(x.tree,file=paste0(writepath,"hclust_",
+                                level,"_K",ncluster,".tre"))
+  
+  #for(k in 11){
+  #  xclust=kmeans(x4,ncluster[k],nstart=20)
+  #  return(xclust)
+  #}
+  
+  xclust=kmeans(x4,ncluster)
+  #return(xclust)
+  
+  assignments=as.data.frame(xclust$cluster)
+  
+  write.csv(assignments,
+            paste0(writepath,"clusters_",level,
+                   "_K",ncluster,".csv"),
+            row.names = T,quote = F)
+  
+  #set.seed(1000)
+  #fit=ecos_fit(x6,K=2,tol=0.1,num_trials=10)
+  #print(fit)
+}
+```
+
+```{r}
+writepath=paste0(filepath,"ecostructure/git_code/")
+clustertaxa(xdata=x2,ncluster=13,level="M",writepath=writepath)
+```
+
+```{r}
+# read file from actual analysis
+x=as.data.frame(read_csv(paste0(filepath,"SDMs/MadreSelva_december/eco_null_PAM.csv")))
+
+pam.names=colnames(x)
+
+winter.x=x[,which(pam.names%in%subnames)]
+
+rm(x)
+rm(subset)
+```
+
+```{r}
+summary(winter.x[,1:5])
+```
+
+```{r}
+winter.x[is.na(winter.x)]=0
+richness=rowSums(winter.x)
+
+hist(richness/ncol(winter.x))
+```
+
+```{r}
+colnames(winter.x[,1:9])
+```
+
+```{r}
+x2=winter.x
+```
+
+# 6 Cluster comparisons
+
+Using the output from the clusters of summer and winter data, we can compare cluster assignments. The following examplar is comparing clusters from neutral assignments.
+
+
+```{r}
+filepath="~/Dropbox/motmots/SDMs/"
+```
+
+## 6.1 Loading models, assigning class
+
+```{r}
+winter=read_csv(paste0(filepath,"MadreSelva_december/clusters_null_K11.csv"))
+
+summer=read_csv(paste0(filepath,"SanJose_june/clusters_null_K18.csv"))
+
+colnames(summer)=colnames(winter)=c("Name","Cluster")
+```
+
+First, we need to correct for different cluster names and for species that are present in one analysis but not in the other. `outersect` function from [this blog post](https://www.r-bloggers.com/2011/11/outersect-the-opposite-of-rs-intersect-function/).
+
+```{r}
+sum.names=summer$Name
+win.names=winter$Name
+
+name.list=Reduce(intersect,list(sum.names,win.names))
+
+outersect <- function(x, y) {
+  sort(c(x[!x%in%y],
+         y[!y%in%x]))
+}
+
+miss.list=Reduce(outersect,list(sum.names,win.names))
+
+sum.red=summer[which(summer$Name%in%name.list),]
+win.red=winter[which(winter$Name%in%name.list),]
+```
+```{r,eval=F}
+# Missing Taxa
+
+print(miss.list)
+```
+
+Now, to identify core species that are together.
+
+```{r}
+# Cluster x is summer, y is winter
+x=inner_join(sum.red,win.red,by='Name')
+
+#Rows, Cols
+# summer, winter
+table(x$Cluster.x,x$Cluster.y)
+```
+
+The above table shows all the combinations of groups, as they occur within the data table and within the dataset. The eigenvector corresponds to groups that have the same numerical assignment between summer and winter. In this instance, `Cluster.x` (summer) group 4 corresponds mostly to `Cluster.y` (winter) group 6. It appears as though groups are split between time periods, and that there is large discordance between these time periods.
+
+We can define clusters as **stable**, **split**, or **dispersed**. We define this as groups that are 66% or more in the same cluster, retain at least 33% in at least two clusters, or lack 33% in more than one group. We define these based on the **summer** clustering, where more groups exist.
+
+```{r}
+clust.table=as.matrix(table(x$Cluster.x,x$Cluster.y))
+
+for(i in 1:nrow(clust.table)){
+  x.ord=clust.table[i,]
+  x.ord=x.ord[order(x.ord,decreasing = T)]
+  x.max=x.ord[1]
+  x.sec=x.ord[2]
+  x.sum=sum(x.ord)
+  
+  if(x.max/x.sum>0.66){
+    print(paste0("Cluster ",i,": STABLE."))
+    next
+  }
+  if(x.max/x.sum>0.33){
+    if(x.sec/x.sum>0.33){
+      print(paste0("Cluster ",i,": SPLIT."))
+      next
+    }else{
+      print(paste0("Cluster ",i,": DIFFUSE."))
+      next
+    }
+  }else{
+    print(paste0("Cluster ",i,": DIFFUSE."))
+    next
+  }
+}
+```
+
+So, from this we can assess the following:
+
+The following is an assessment from summer *into* winter.
+
+**Stable Clusters**: Cluster 7 (as 7); Cluster 13 (as 7); Cluster 14 (as 6)
+
+**Split Clusters**: Cluster 15, Cluster 17, Cluster 18
+
+**Dispersed Clusters**: All other clusters (1:6,8:12,16)
+
+```{r,echo=F}
+stable=c(7,13,14)
+split=c(15,17,18)
+dispersed=c(1:6,8:12,16)
+```
+
+Because of this, it is clear that these communities are not very well maintained in time. but we can learn about them individually.
+
+```{r}
+# dataframe=x
+
+summer.look=function(dataframe,cluster){
+  dataframe$Name=as.character(dataframe$Name)
+  sub.dat=dataframe[which(dataframe$Cluster.x==cluster),]
+  #print(sub.dat)
+  
+  sub.names=sub.dat$Name
+  sub.files=paste0(sub.names,"_cropped.tif")
+  
+  y=stack(paste0(filepath,"SanJose_june/clipped_SDM/",sub.files))
+  #y[is.na(y)]=0
+  y2=calc(y,fun=sum)
+  
+  y3=as.data.frame(y2,xy=T)
+  
+  a=ggplot()+
+    geom_raster(data=y3,
+                aes(x=x,y=y,fill=layer))+
+    labs(x="Longitude",y="Latitude",fill="Richness",
+         title=paste0("Summer: Cluster ",cluster))+
+    scale_fill_viridis_c(option="viridis")+
+    theme_classic()+
+    theme(plot.title=element_text(hjust=0.5))+
+    coord_quickmap()
+  
+  x=stack(paste0(filepath,
+                 "MadreSelva_december/clipped_SDM/",sub.files))
+  #x[is.na(x)]=0
+  x2=calc(x,fun=sum)
+  
+  x3=as.data.frame(x2,xy=T)
+  
+  
+  b=ggplot()+
+    geom_raster(data=x3,
+                aes(x=x,y=y,fill=layer))+
+    labs(x="Longitude",y="Latitude",fill="Richness",
+         title=paste0("Winter: Cluster ",cluster))+
+    scale_fill_viridis_c(option="viridis")+
+    theme_classic()+
+    theme(plot.title=element_text(hjust=0.5))+
+    coord_quickmap()
+  
+  grid.arrange(a,b,ncol=2)
+}
+```
+
+### Stable Clusters
+
+```{r}
+for(i in 1:length(stable)){
+  val=stable[i]
+  print(x[x$Cluster.x==val,])
+  summer.look(dataframe = x,cluster = val)
+}
+```
+
+### Dispersed Clusters
+
+```{r}
+for(i in 1:length(dispersed)){
+  val=dispersed[i]
+  print(x[x$Cluster.x==val,])
+  summer.look(dataframe = x,cluster = val)
+}
+```
+
+### Split Clusters
+
+```{r}
+for(i in 1:length(split)){
+  val=split[i]
+  print(x[x$Cluster.x==val,])
+  summer.look(dataframe = x,cluster = val)
+}
+```
+
+### Differences in range between seasons
+
+Note that the continuous rasters exist for Costa Rica and Panama; they must all be cropped to the area of Costa Rica for proper comparisons.
+
+```{r,echo=F}
+shp.path="~/Dropbox/motmots/shapefiles/training_areas/"
+```
+```{r,eval=F}
+# note - same for both PDFs, since the training area is applied after
+
+d.stat=NULL
+
+y=readOGR(paste0(shp.path,"Acanthidops-bairdi.gpkg"))
+  
+# get Schoener's D values
+# use continuous rasters
+for(i in 1:length(name.list)){
+  file=name.list[i]
+  
+  sub.files=paste0(file,"_all-pts.tif")
+  
+  r1=raster(paste0(filepath,"SanJose_june/output/all/",sub.files))
+  cr1=crop(r1,y)
+  cr2=raster::mask(cr1,y)
+  
+  r2=raster(paste0(filepath,"MadreSelva_december/output_all/all/",sub.files))
+  c2r1=crop(r2,y)
+  c2r2=raster::mask(c2r1,y)
+  
+  d.stat[i]=nicheOverlap(r1,r2,stat="D")
+}
+
+new.df=cbind(x,d.stat)
+
+write_csv(new.df,paste0(filepath,"clust_d-stats_null.csv"))
+```
+```{r}
+x=read_csv(paste0(filepath,"clust_d-stats.csv"))
+```
+
+Now we can look at this differences a little more closely.
+
+```{r}
+brks=seq(0,1,0.05)
+hist(x$d.stat,breaks=brks)
+```
+
+Most species are fairly similar in their D statistic, and we don't see any bimodality occurring. Now we can look at differences between groups.
+
+```{r}
+sub.x=x[x$Cluster.x==stable,]
+hist(sub.x$d.stat,breaks=brks,main="Stable")
+```
+
+```{r}
+sub.x=x[x$Cluster.x==dispersed,]
+hist(sub.x$d.stat,breaks=brks,main="Diffuse")
+```
+
+```{r}
+sub.x=x[x$Cluster.x==split,]
+hist(sub.x$d.stat,breaks=brks,main="Split")
+```
+
+Interestingly, no groups show major trends towards niche shifting. This may imply species are using different parts of their niches at different times of the year.
+
+```{r}
+stable.x=x[x$Cluster.x==stable,]
+diffuse.x=x[x$Cluster.x==dispersed,]
+split.x=x[x$Cluster.x==split,]
+
+# Stable vs. Diffuse
+wilcox.test(stable.x$d.stat,diffuse.x$d.stat)
+```
+
+```{r}
+# Split vs. Diffuse
+wilcox.test(split.x$d.stat,diffuse.x$d.stat)
+```
+```{r}
+# Stable vs. Split
+wilcox.test(stable.x$d.stat,split.x$d.stat)
+```
+
+```{r,echo=F}
+# mean stable
+mu=mean(stable.x$d.stat)
+n=length(stable.x$d.stat)
+x.sd=sd(stable.x$d.stat)
+
+se=qt(0.975,df=n-1)*(x.sd/sqrt(n))
+
+print(paste0("Stable: ",round(mu,3),'+/-',round(se,3)))
+# mean diffuse
+
+mu=mean(diffuse.x$d.stat)
+n=length(diffuse.x$d.stat)
+x.sd=sd(diffuse.x$d.stat)
+
+se=qt(0.975,df=n-1)*(x.sd/sqrt(n))
+
+print(paste0("Diffuse: ",round(mu,3),'+/-',round(se,3)))
+
+# mean split
+mu=mean(split.x$d.stat)
+n=length(split.x$d.stat)
+x.sd=sd(split.x$d.stat)
+
+print(paste0("Split: ",round(mu,3),'+/-',round(se,3)))
+```
+
+
+
+```{r}
+x=x[order(x$d.stat),]
+
+x[which(x$d.stat<0.8),]
+```
+
+```{r}
+x[which(x$d.stat>0.935),]
+```
+
+### Randomized D Stats
+
+```{r,eval=F}
+# note - this is also the same as previous, since it is just for post-hoc
+d.stat=NULL
+
+y=readOGR(paste0(shp.path,"Acanthidops-bairdi.gpkg"))
+  
+# get Schoener's D values
+# use continuous rasters
+
+n=length(name.list)
+
+for(i in 1:(n*10)){
+  file1=name.list[round(runif(1,1,n),0)]
+  file2=name.list[round(runif(1,1,n),0)]
+  
+  sub.files1=paste0(file1,"_all-pts.tif")
+  sub.files2=paste0(file2,"_all-pts.tif")
+  
+  r1=raster(paste0(filepath,"SanJose_june/output/all/",sub.files1))
+  cr1=crop(r1,y)
+  cr2=raster::mask(cr1,y)
+  
+  r2=raster(paste0(filepath,"MadreSelva_december/output_all/all/",sub.files2))
+  c2r1=crop(r2,y)
+  c2r2=raster::mask(c2r1,y)
+  
+  d.stat[i]=nicheOverlap(r1,r2,stat="D")
+}
+
+new.df=cbind('x',d.stat)
+
+write_csv(as.data.frame(new.df),paste0(filepath,"clust_d-stats_random.csv"))
+```
+```{r}
+xx=read_csv(paste0(filepath,"clust_d-stats_random.csv"))
+```
+```{r}
+hist(xx$d.stat)
+```
+
+```{r}
+# randomized
+summary(xx$d.stat)
+```
+
+```{r}
+# nonrandom
+summary(x$d.stat)
+```
+
+```{r}
+t.test(xx$d.stat,x$d.stat)
+```
+
+The *D* statistics of the actual observed species are significantly higher than expected at random.
+
+### Number of points
+
+```{r,echo=F}
+summer.point.files=paste0(filepath,"SanJose_june/all.species/",
+                          list.files(paste0(filepath,"SanJose_june/all.species"),pattern='*.csv'))
+winter.point.files=paste0(filepath,"MadreSelva_december/all.species/",
+                          list.files(paste0(filepath,"MadreSelva_december/all.species"),pattern='*.csv'))
+```
+
+Calculate the difference in points between summer and winter.
+
+```{r,eval=F}
+sum.pts=NULL
+win.pts=NULL
+dif.pts=NULL
+name.vector=NULL
+
+s.point.files=summer.point.files
+w.point.files=winter.point.files
+
+for(i in 1:length(name.list)){
+  name=name.list[i]
+  x=read_csv(s.point.files[which(s.point.files%like%name)])
+  y=read_csv(w.point.files[which(w.point.files%like%name)])
+  
+  name.vector[i]=name
+  sum.pts[i]=nrow(x)
+  win.pts[i]=nrow(y)
+}
+
+dif.pts=sum.pts-win.pts
+
+pts.frame=as.data.frame(cbind(name.vector,sum.pts,win.pts,dif.pts))
+```
+```{r,echo=F,eval=F}
+write_csv(pts.frame,"~/Dropbox/motmots/ecostructure/pts_frame.csv")
+```
+```{r,echo=F}
+pts.frame=read_csv("~/Dropbox/motmots/ecostructure/pts_frame.csv")
+colnames(pts.frame)[1]="Name"
+
+d.stats=read_csv(paste0(filepath,"clust_d-stats.csv"))
+```
+
+```{r}
+pts.d=inner_join(pts.frame,d.stats,by="Name")
+
+plot(x=pts.d$d.stat,y=pts.d$dif.pts,pch=19)
+```
